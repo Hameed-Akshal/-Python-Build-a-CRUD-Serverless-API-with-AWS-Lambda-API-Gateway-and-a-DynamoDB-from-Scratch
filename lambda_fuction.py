@@ -1,4 +1,3 @@
-
 import boto3
 import json
 from custom_encode import CustomEncoder
@@ -6,21 +5,19 @@ import logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-dynamodbTableName = 'product-inventory'
 dynamodb = boto3.resource('dynamodb')
-Table = dynamodb.Table(dynamodbTableName)
-
+table = dynamodb.Table('product-inventory')
 
 getMethod = 'GET'
-postMethod = 'Post'
+postMethod = 'POST'
 patchMethod = 'PATCH'
 deleteMethod = 'DELETE'
 healthPath = '/health'
 productPath = '/product' 
 productsPath = '/products'
 
-def Lambda_handler(event, context):
-    logger.info(event)
+def lambda_handler(event, context):
+    print(json.dumps(event))
     httpMethod = event['httpMethod']
     path = event['path']
 
@@ -33,41 +30,41 @@ def Lambda_handler(event, context):
     elif httpMethod == postMethod and path == productPath:
         response = saveProduct(json.loads(event['body'])),
     elif httpMethod == patchMethod and path == productPath:
-        requestBody = json.loads(event['body']),
-        response = modifyProduct(requestBody['productId'], requestBody['updatekey'], requestBody['updateValue']) 
+        requestBody = json.loads(event['body'])
+        response = modifyProduct(requestBody['productid'], requestBody['updateKey'], requestBody['updateValue']) 
     elif httpMethod == deleteMethod and path == productPath:
         requestBody = json.loads(event['body'])
-        response = deleteProduct(requestBody['productId']), 
+        response = deleteProduct(requestBody['productid']), 
     else:
         response = buildResponse(404,'Not Found')
     return response
 
 
-def getProduct(productId):
+def getProduct(productid):
     try:
         response = table.get_item(
             Key={
-                'productId': productId
+                'productid': productid
                 }
         )
         if 'Item' in response:
-         return buildResponse (200, response['Item'])
+         return buildResponse(200, response['Item'])
         else:
-         return buildResponse (404,{ 'Message': 'ProductId: %s not found' % productId})
+         return buildResponse(404,{ 'Message': 'productid: %s not found' % productid})
 
     except:
              logger.exception('Do your custom error handling here. I am just gonna log it out here!!')
 
 
-
 def getProducts():
     try:
        response = table.scan()
-       result = response['Item']
+       print(response)
+       result = response['Items']
 
-       while 'LastEvaluateKey' in response:
-        response = table.scan(ExclusiveStartKey=response[ 'LastEvaluatedkey']) 
-        result.extend(response[ 'Item'])
+       while 'LastEvaluatedKey' in response:
+        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey']) 
+        result.extend(response['Items'])
 
        body = {
         'products': result
@@ -77,9 +74,9 @@ def getProducts():
     except:
           logger.exception('Do your custom error handling here. I am just gonna log it out here!!')
 
-def saveProduct():
+def saveProduct(requestBody):
     try:
-        table.put_item(Item=requestBody)
+        response = table.put_item(Item=requestBody)
         body = {
             'Operation': 'SAVE',
             'Message': 'SUCCESS',
@@ -89,13 +86,14 @@ def saveProduct():
     except:
         logger.exception('Do your custom error handling here. I am just gonna log it out here!!')
 
-def modifyProduct(productId,updateKey,updateValue):
+def modifyProduct(productid,updateKey,updateValue):
    try:
     response = table.update_item(
         Key= {
-          'productId': productId
+          'productid': productid
        },
-       ExpressionAttributeValue= {
+       UpdateExpression='set %s = :value' % updateKey,
+       ExpressionAttributeValues= {
         ':value' : updateValue
        },
        ReturnValues= 'UPDATED_NEW'
@@ -110,43 +108,37 @@ def modifyProduct(productId,updateKey,updateValue):
         logger.exception('Do your custom error handling here. I am just gonna log it out here!!')
  
 
-def deleteProduct(productId):
-     try:
-       response = table.delete_item(
-        Key= {
-          'productId': productId
-          },
-        ReturnValues= 'ALL_OLD'
-         )
-       body = {
-            'Operation': 'DELETE',
-            'Message': 'SUCCESS',
-            'deleteItem' : response
-        }
-       return buildResponse(200,body)
-     except:
+def deleteProduct(productid):
+    try:
+        response = table.delete_item(
+            Key={
+                 'productid': productid
+                 },
+            ReturnValues= 'ALL_OLD'
+        )
+        body = {
+                'Operation': 'DELETE',
+                'Message': 'SUCCESS',
+                'deletedItem' : response
+            }
+        return buildResponse(200,body)
+    except:
         logger.exception('Do your custom error handling here. I am just gonna log it out here!!')
  
 
-     
-
-   
-
-
-
 def buildResponse(statusCode,body=None):
     response = {
-        'statusCode':statusCode,
-          'header' : {
-            'Content-type':'appliction/json',
+        "statusCode": statusCode,
+        "isBase64Encoded": False,
+        "headers" : {
+            'Content-type':'application/json',
             'Access-Control-Allow-Origin':'*'
         }
-
     }
 
     if body is not None:
         response['body'] = json.dumps(body,cls=CustomEncoder)
-        return response
+    return response
 
 
 
